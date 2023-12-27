@@ -128,6 +128,10 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Darkin.cpp" />
+    <ClCompile Include="WindowCapture.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="WindowCapture.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
