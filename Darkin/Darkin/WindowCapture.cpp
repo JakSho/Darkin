@@ -1,80 +1,81 @@
 #include <windows.h>
-#include "WindowCapture.h"
-#include <iostream>
-#include <string>
 #include <opencv2/opencv.hpp>
+#include <string>
+#include <chrono>
+#include "FPSCounter.h"
 
-void DisplayWindow(HWND hwnd) {
-    HDC hdcWindow = GetDC(hwnd);
+// Function to find a window by its title
+HWND FindWindowByTitle(const std::string& title) {
+    return FindWindowA(NULL, title.c_str());
+}
+
+// Function to capture a specific window
+cv::Mat captureWindowMat(HWND hWnd) {
+    // Get the device context (DC) for the window
+    HDC hWindowDC = GetDC(hWnd);
+
+    // Get the client area of the window
     RECT rect;
-    GetClientRect(hwnd, &rect);
+    GetClientRect(hWnd, &rect);
     int width = rect.right - rect.left;
     int height = rect.bottom - rect.top;
 
-    // Variables to store the screen's refresh rate
-    DEVMODE dm;
-    dm.dmSize = sizeof(DEVMODE);
+    // Create a compatible DC and a new bitmap
+    HDC hCaptureDC = CreateCompatibleDC(hWindowDC);
+    HBITMAP hBitmap = CreateCompatibleBitmap(hWindowDC, width, height);
 
-    // Create an OpenCV window named "Window Capture"
-    cv::namedWindow("Window Capture", cv::WINDOW_NORMAL);
+    // Select the new bitmap into the capture DC and capture the window
+    HBITMAP hOldBitmap = (HBITMAP)SelectObject(hCaptureDC, hBitmap);
+    BitBlt(hCaptureDC, 0, 0, width, height, hWindowDC, 0, 0, SRCCOPY);
 
-    // Define a BITMAPINFOHEADER structure
-    BITMAPINFOHEADER bi;
-    bi.biSize = sizeof(BITMAPINFOHEADER);
-    bi.biWidth = width;
-    bi.biHeight = -height; // Negative height to ensure top-down image
-    bi.biPlanes = 1;
-    bi.biBitCount = 24; // 24-bit RGB
-    bi.biCompression = BI_RGB;
-    bi.biSizeImage = 0;
-    bi.biXPelsPerMeter = 0;
-    bi.biYPelsPerMeter = 0;
-    bi.biClrUsed = 0;
-    bi.biClrImportant = 0;
+    // Create an OpenCV image from the captured bitmap
+    cv::Mat screen(height, width, CV_8UC4);
+    BITMAPINFOHEADER bi = { sizeof(bi), width, -height, 1, 32, BI_RGB };
+    GetDIBits(hCaptureDC, hBitmap, 0, height, screen.data, (BITMAPINFO*)&bi, DIB_RGB_COLORS);
 
-    while (true) {
-        // Query the screen's current refresh rate
-        if (EnumDisplaySettings(nullptr, ENUM_CURRENT_SETTINGS, &dm)) {
-            std::cout << "Screen Refresh Rate: " << dm.dmDisplayFrequency << " Hz" << std::endl;
-        }
-        else {
-            std::cerr << "Failed to retrieve screen refresh rate." << std::endl;
-        }
+    // Clean up
+    SelectObject(hCaptureDC, hOldBitmap);
+    DeleteObject(hBitmap);
+    DeleteDC(hCaptureDC);
+    ReleaseDC(hWnd, hWindowDC);
 
-        // Create an OpenCV Mat object to store the captured content
-        cv::Mat frame(height, width, CV_8UC3);
+    return screen;
+}
 
-        // Capture the content of the window
-        HDC hdcMemDC = CreateCompatibleDC(hdcWindow);
-        HBITMAP hbmScreen = CreateCompatibleBitmap(hdcWindow, width, height);
-        SelectObject(hdcMemDC, hbmScreen);
-        BitBlt(hdcMemDC, 0, 0, width, height, hdcWindow, 0, 0, SRCCOPY);
-        GetDIBits(hdcWindow, hbmScreen, 0, height, frame.data, (BITMAPINFO*)&bi, DIB_RGB_COLORS);
+int GetScreenRefreshRate() {
+    DEVMODE devMode;
+    devMode.dmSize = sizeof(DEVMODE);
+    EnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &devMode);
+    return devMode.dmDisplayFrequency;  // Returns the refresh rate
+}
 
-        // Display the captured content in real-time using OpenCV
-        cv::imshow("Window Capture", frame);
-
-        DeleteObject(hbmScreen);
-        DeleteObject(hdcMemDC);
-        ReleaseDC(hwnd, hdcWindow);
-
-        // Adjust the waitKey time to control the frame rate
-        int key = cv::waitKey(16); // Adjust for desired frame rate (e.g., 60 FPS)
-        if (key == 27) { // Exit when the 'Esc' key is pressed
-            break;
-        }
-    }
-
-    cv::destroyWindow("Window Capture");
+int CalculateFrameDuration(int refreshRate) {
+    if (refreshRate <= 0) return 16;  // Default to ~60Hz if invalid rate
+    return 1000 / refreshRate;       // Milliseconds per frame
 }
 
 void WindowCapture() {
-    const wchar_t* windowTitle = L"Window Title";
-
-    HWND targetWindow = FindWindow(nullptr, windowTitle);
-    if (targetWindow == nullptr) {
-        std::wcerr << L"Window not found." << std::endl;
+    HWND hWnd = FindWindowByTitle("bin");
+    if (!hWnd) {
+        std::cerr << "Window not found!\n";
         return;
     }
-    DisplayWindow(targetWindow);
+
+    FPSCounter fpsCounter;
+
+    while (true) {
+        cv::Mat window = captureWindowMat(hWnd);
+        if (window.empty()) {
+            std::cerr << "Failed to capture window or window is minimized.\n";
+            break;  // Exit if capture failed
+        }
+
+        fpsCounter.countFrame();  // Update FPS count
+        fpsCounter.putFPS(window);  // Draw FPS on the image
+
+        cv::imshow("Captured Window", window);
+
+        // Break the loop if the user presses a key
+        if (cv::waitKey(1) >= 0) break;
+    }
 }
