@@ -2,10 +2,11 @@
 //
 
 #include <iostream>
+#include "WindowCapture.h"
 
 int main()
 {
-    std::cout << "Hello World!\n";
+    WindowCapture();
 }
 
 // Run program: Ctrl + F5 or Debug > Start Without Debugging menu
